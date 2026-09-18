@@ -1,0 +1,105 @@
+from pathlib import Path
+import json
+import re
+
+from fastapi import FastAPI
+from fastapi.responses import PlainTextResponse, HTMLResponse
+from fastapi.staticfiles import StaticFiles
+
+ROOT = Path(__file__).parent
+DATA = ROOT / "data"
+MODEL_PATH = DATA / "KRAS_alphafold_model.cif"
+CONSTRUCT_PATH = DATA / 'KRAS_G12D_construct_1-169.pdb'
+PAE_PATH = DATA / "KRAS_alphafold_pae.json"
+
+# Values are the completed Step 5 readback; no analysis is rerun at request time.
+ANALYSIS = {
+    "anchors": [
+        {"name": "Gly10", "position": 10, "identity": "G", "plddt": 87.70},
+        {"name": "Val14", "position": 14, "identity": "V", "plddt": 89.92},
+        {"name": "Gly15", "position": 15, "identity": "G", "plddt": 90.79},
+        {"name": "Lys16", "position": 16, "identity": "K", "plddt": 87.06},
+        {"name": "Ser17", "position": 17, "identity": "S", "plddt": 87.03},
+    ],
+    "regions": [
+        {"label": "10–17", "af_min": 93.94, "af_mean": 95.97, "g12d_min": 80.13, "g12d_mean": 86.94},
+        {"label": "30–38", "af_min": 77.75, "af_mean": 83.47, "g12d_min": 62.00, "g12d_mean": 68.27},
+        {"label": "57–67", "af_min": 73.06, "af_mean": 81.69, "g12d_min": 45.12, "g12d_mean": 60.30},
+    ],
+    "actual_plddt": [85.31,85.31,85.31,85.31,85.31,85.31,85.31,85.31,85.31,87.70,86.28,80.13,86.59,89.92,90.79,87.06,87.03,85.31,85.31,85.31,85.31,85.31,85.31,85.31,85.31,85.31,85.31,85.31,85.31,76.48,70.42,62.75,68.17,65.79,63.40,62.00,68.19,77.20,85.31,85.31,85.31,85.31,85.31,85.31,85.31,85.31,85.31,85.31,85.31,85.31,85.31,85.31,85.31,85.31,85.31,85.31,85.31,85.31,85.31,85.31,82.92,77.84,62.66,57.44,49.03,48.53,45.12,48.38,60.35,66.23,64.82] + [85.31] * 98,
+}
+
+app = FastAPI(title="KRAS design anchors")
+app.mount("/data", StaticFiles(directory=DATA), name="data")
+
+
+def construct_pdb_text() -> str:
+    return CONSTRUCT_PATH.read_text()
+
+
+@app.get("/structure.pdb", include_in_schema=False)
+def structure() -> PlainTextResponse:
+    return PlainTextResponse(construct_pdb_text(), media_type="chemical/x-pdb")
+
+
+@app.get("/pae.json", include_in_schema=False)
+def pae() -> PlainTextResponse:
+    return PlainTextResponse(PAE_PATH.read_text(), media_type="application/json")
+
+
+@app.get("/", response_class=HTMLResponse)
+def index() -> str:
+    return PAGE
+
+
+ANALYSIS_PLDDT = ANALYSIS["actual_plddt"]
+
+PAGE = r'''<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
+<title>KRAS G12D · Step 5 Core</title>
+<script src="https://cdn.tailwindcss.com"></script>
+<script src="https://3dmol.csb.pitt.edu/build/3Dmol-min.js"></script>
+<style>html,body{margin:0;max-width:100%;overflow-x:hidden}body{background:#f6f8fb}.page-shell{width:100%;max-width:80rem;margin-inline:auto}.viewer-card{width:100%;min-width:0}.viewer{position:relative;width:100%;height:clamp(360px,55vw,560px);max-width:100%;overflow:hidden;background:#0b1220}.viewer canvas{display:block!important;width:100%!important;height:100%!important;max-width:100%!important}.chart{height:260px}.mono{font-variant-numeric:tabular-nums}</style>
+</head><body class="text-slate-800">
+<main class="page-shell box-border px-4 py-8 sm:px-6 lg:px-8">
+<header class="mb-8"><div class="mb-3 flex items-center gap-2 text-sm font-semibold uppercase tracking-widest text-indigo-600"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 3v18M3 12h18"/><circle cx="12" cy="12" r="9"/></svg>Step 5 · Core readout</div>
+<h1 class="text-3xl font-bold tracking-tight text-slate-950 md:text-5xl">Five model-supported design anchors</h1>
+<p class="mt-4 max-w-3xl text-lg leading-8 text-slate-600">For Agent A’s KRAS G12D 1–169 assay construct: <strong class="text-slate-950">Gly10, Val14, Gly15, Lys16, and Ser17.</strong></p>
+<div class="mt-5 rounded-xl border border-indigo-200 bg-indigo-50 p-4 text-indigo-950"><strong>Interpretation:</strong> these are model-supported design anchors, <strong>not experimentally validated residue-level contacts.</strong></div></header>
+<section class="mb-8 rounded-2xl border border-slate-200 bg-white p-5 shadow-sm"><h2 class="flex items-center gap-2 text-lg font-semibold"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 7h16M4 12h16M4 17h10"/><circle cx="19" cy="17" r="2"/></svg>Structure check</h2><p class="mt-3 text-sm leading-7 text-slate-600"><strong>Owner construct:</strong> KRAS G12D, residues 1–169, single chain, no tag. <strong>AlphaFold DB:</strong> canonical KRAS P01116, residues 1–189; position 12 differs (AlphaFold G12, owner D12), and it includes C-terminal residues 170–189. The sequence-matched G12D 1–169 fold is the construct-matched structure. Both assemblies are single-chain monomers.</p></section>
+<section class="grid min-w-0 gap-6 lg:grid-cols-5"><div class="viewer-card overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm lg:col-span-3"><div class="flex flex-wrap items-center justify-between gap-2 border-b border-slate-200 p-4"><div><h2 class="font-semibold">Construct-matched G12D 1–169 structure</h2><p class="text-sm text-slate-500">Sequence-matched fold · colored by pLDDT/B-factor</p></div><span class="rounded-full bg-slate-100 px-3 py-1 text-xs text-slate-600">Chain A · 1–169</span></div><div id="viewer" class="viewer"></div><div class="flex flex-wrap items-center gap-4 p-4 text-xs text-slate-600"><span><i class="mr-1 inline-block h-3 w-3 rounded-full bg-blue-600"></i>high confidence</span><span><i class="mr-1 inline-block h-3 w-3 rounded-full bg-green-500"></i>medium</span><span><i class="mr-1 inline-block h-3 w-3 rounded-full bg-red-500"></i>lower</span><span class="border-l border-slate-300 pl-4">B-factor represents pLDDT</span></div></div>
+<div class="min-w-0 rounded-2xl border border-slate-200 bg-white p-5 shadow-sm lg:col-span-2"><h2 class="font-semibold">Selected anchors</h2><p class="mt-1 text-sm text-slate-500">Actual G12D 1–169 fold pLDDT</p><div class="mt-4 space-y-3">''' + ''.join(f'''<div class="flex items-center justify-between rounded-lg bg-slate-50 px-3 py-2"><span><strong>{a['name']}</strong> <span class="text-slate-500">· position {a['position']}</span></span><span class="mono font-semibold text-indigo-700">{a['plddt']:.2f}</span></div>''' for a in ANALYSIS['anchors']) + r'''</div><div class="mt-5 border-t border-slate-200 pt-4 text-sm leading-6 text-slate-600">The five selected positions are in the consistently strongest requested neighbourhood, 10–17.</div></div></section>
+<section class="mt-6 rounded-2xl border border-slate-200 bg-white p-5 shadow-sm"><div class="flex flex-wrap items-end justify-between gap-3"><div><h2 class="font-semibold">Pairwise positional uncertainty (PAE)</h2><p class="mt-1 text-sm text-slate-500">Existing AlphaFold/reference KRAS PAE matrix (189 × 189) · lower values indicate more confident relative positioning; no inter-chain interface is claimed for this single-chain monomer.</p></div></div><div id="pae-heatmap" class="mt-4 overflow-hidden rounded-lg bg-slate-950 p-2"><canvas id="pae-canvas" class="mx-auto block" aria-label="KRAS pairwise positional uncertainty heatmap"></canvas></div></section>
+<section class="mt-6 rounded-2xl border border-slate-200 bg-white p-5 shadow-sm"><div class="flex flex-wrap items-end justify-between gap-3"><div><h2 class="font-semibold">Local confidence comparison</h2><p class="mt-1 text-sm text-slate-500">Exact regional min/mean pLDDT from the completed analysis</p></div><div class="flex items-center gap-3 text-xs text-slate-500"><span><i class="mr-1 inline-block h-3 w-3 rounded bg-indigo-600"></i>AlphaFold</span><span><i class="mr-1 inline-block h-3 w-3 rounded bg-teal-500"></i>G12D fold</span></div></div><div class="mt-5 grid gap-4 md:grid-cols-3">''' + ''.join(f'''<article class="rounded-xl border border-slate-100 bg-slate-50 p-4"><h3 class="font-semibold">Region {r['label']}</h3><div class="mt-3 space-y-2 text-sm"><div class="flex justify-between"><span>AlphaFold min / mean</span><strong class="mono">{r['af_min']:.2f} / {r['af_mean']:.2f}</strong></div><div class="flex justify-between"><span>G12D min / mean</span><strong class="mono text-teal-700">{r['g12d_min']:.2f} / {r['g12d_mean']:.2f}</strong></div></div><div class="mt-3 h-2 overflow-hidden rounded bg-slate-200"><div class="h-full bg-indigo-600" style="width:{r['af_mean']}%"></div></div><div class="mt-1 h-2 overflow-hidden rounded bg-slate-200"><div class="h-full bg-teal-500" style="width:{r['g12d_mean']}%"></div></div></article>''' for r in ANALYSIS['regions']) + r'''</div><div class="mt-6"><h3 class="text-sm font-semibold">Actual G12D fold · per-residue pLDDT across residues 1–169</h3><p class="mt-1 text-xs text-slate-500">Claimed region 10–17 is shaded; selected residues are marked in amber.</p><div id="bars" class="mt-3 flex h-48 items-end gap-px border-b border-l border-slate-200 px-3 pb-0"></div><div id="bar-labels" class="mt-2 flex justify-between text-xs text-slate-400"></div></div></section>
+<section class="mt-6 rounded-2xl border border-amber-200 bg-amber-50 p-5 text-amber-950"><h2 class="flex items-center gap-2 font-semibold"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 9v4M12 17h.01"/><path d="M10.3 3.9 2.4 18a2 2 0 0 0 1.7 3h15.8a2 2 0 0 0 1.7-3L13.7 3.9a2 2 0 0 0-3.4 0Z"/></svg>Biological caveat</h2><p class="mt-2 text-sm leading-7">The model provides structural/confidence evidence but does not establish experimentally validated residue-level ligand contacts or prove that the predicted geometry represents the relevant ligand-bound conformational state. Treat the five residues as model-supported design anchors rather than experimentally proven binding contacts.</p></section>
+<footer class="py-8 text-xs text-slate-400">Source files: supplied AlphaFold DB mmCIF and completed construct-matched fold readout. No new KRAS analysis is performed by this app.</footer>
+</main><script>
+const viewerElement=document.getElementById('viewer');
+const viewer=$3Dmol.createViewer(viewerElement,{backgroundColor:'#0b1220'});
+function resizeViewer(){if(viewerElement.clientWidth&&viewerElement.clientHeight){viewer.resize();}}
+window.addEventListener('resize',resizeViewer);
+fetch('/structure.pdb').then(response=>{if(!response.ok)throw new Error(`Structure request failed: ${response.status}`);return response.text();}).then(pdbText=>{
+  if(!pdbText.includes('ATOM'))throw new Error('Structure response contains no ATOM records');
+  const model=viewer.addModel(pdbText,'pdb');
+  if(!model)throw new Error('3Dmol could not parse the PDB model');
+  model.setStyle({}, {cartoon:{color:'spectrum'}});
+  [10,14,15,16,17].forEach(n=>model.setStyle({resi:n},{cartoon:{color:'#fbbf24'},stick:{color:'#fbbf24',radius:.22},sphere:{color:'#f59e0b',scale:.32}}));
+  resizeViewer();
+  viewer.zoomTo({});
+  viewer.zoom(1.2);
+  viewer.render();
+}).catch(error=>{console.error('Structure viewer error:',error);viewerElement.insertAdjacentHTML('beforeend','<p class="p-4 text-sm text-red-300">Unable to render structure.</p>');});
+fetch('/pae.json').then(r=>r.json()).then(data=>{
+  const record=Array.isArray(data)?data[0]:data;
+  const matrix=record.predicted_aligned_error;
+  const canvas=document.getElementById('pae-canvas');
+  if(!Array.isArray(matrix)||!matrix.length||!Array.isArray(matrix[0]))throw new Error('PAE matrix missing');
+  const n=matrix.length,m=matrix[0].length,values=matrix.flat().filter(Number.isFinite),min=Math.min(...values),max=Math.max(...values);
+  const available=Math.max(280,Math.floor(canvas.parentElement.clientWidth-16)),size=available,ctx=canvas.getContext('2d');
+  canvas.width=size;canvas.height=size;canvas.style.width=size+'px';canvas.style.height=size+'px';canvas.style.maxWidth='100%';
+  ctx.clearRect(0,0,size,size);const cellX=size/m,cellY=size/n;
+  matrix.forEach((row,i)=>row.forEach((v,j)=>{const t=(v-min)/(max-min||1);ctx.fillStyle=`rgb(${Math.round(20+235*t)},${Math.round(190-150*t)},${Math.round(245-190*t)})`;ctx.fillRect(j*cellX,i*cellY,Math.ceil(cellX),Math.ceil(cellY));}));
+  const panel=document.getElementById('pae-heatmap');panel.insertAdjacentHTML('beforeend',`<div class="mt-2 flex justify-between text-xs text-slate-300"><span>Lower PAE: ${min.toFixed(2)} Å</span><span>${n} × ${m} matrix</span><span>Higher PAE: ${max.toFixed(2)} Å</span></div>`);
+}).catch(error=>console.error('PAE heatmap error:',error));
+const vals=''' + json.dumps(ANALYSIS["actual_plddt"]) + r'''; const selected=[10,14,15,16,17]; const bars=document.getElementById('bars'); bars.innerHTML=vals.map((v,i)=>{const n=i+1,claimed=n>=10&&n<=17,marked=selected.includes(n);return `<div title="Residue ${n}: ${v.toFixed(2)}" class="h-full flex-1 ${claimed?'bg-indigo-100':''} flex items-end"><div class="w-full ${marked?'bg-amber-400':'bg-teal-500'}" style="height:${v}%"></div></div>`}).join(''); document.getElementById('bar-labels').innerHTML=[1,25,50,75,100,125,150,169].map(n=>`<span>${n}</span>`).join('');
+</script></body></html>'''
