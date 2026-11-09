@@ -4,3 +4,5 @@ __pycache__/
 *.pyc
 
 .env.save
+debug-slides.html
+.env.save

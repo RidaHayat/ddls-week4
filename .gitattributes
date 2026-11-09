@@ -1,0 +1,5 @@
+# Mark generated HTML dashboards and docs as documentation to preserve Python primary language
+*.html linguist-documentation
+docs/* linguist-documentation
+data/* linguist-vendored
+results/* linguist-vendored
